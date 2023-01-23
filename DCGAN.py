@@ -17,6 +17,10 @@ batch_size = 128
 stats = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
 dataroot = "../img_align_celeba"
 
+# Initializing LOSS FUNCTION: BINARY CROSS ENTROPY BCE
+loss_function = nn.BCELoss()
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Training our dataset, using resize and CenterCrop to avoid if there is any rectangle image
@@ -65,16 +69,43 @@ Generator = nn.Sequential(
     nn.ReLU(True),
     # output  28*28
 
-    nn.ConvTranspose2d(128, 1, 4, 2, 1, bias=False),
+    nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
+    nn.BatchNorm2d(64),
+    nn.ReLU(True),
+
+    nn.ConvTranspose2d(64, 1, 4, 2, 1, bias=False),
     nn.Tanh()
 )
 
+# Generating some fake images
+# Random latent tensors
+noise = torch.randn(batch_size, 100, 1, 1)
+fake_imgs = Generator(noise)
+
+# Training Generator:
+def generator_train(gen_optimizer):
+    gen_optimizer.zero_grad()
+    # We will try fooling Discriminator
+    predicted_fake_imgs = discriminator(fake_imgs)
+    target_fake_imgs = torch.zeros(fake_imgs.size(0), 1)
+    gen_loss = loss_function(predicted_fake_imgs, target_fake_imgs)
+
+    #
+    gen_loss.backward()
+    gen_optimizer.step()
+
+    return gen_loss.item()
 
 # Discriminator's Implementation: As the paper which is mentioned by prof. Mellacci
 
 discriminator = nn.Sequential(
-    # I/P: 3 * 64 * 64
+    # I/P:
+
     nn.Conv2d(1, 64, 4, 2, 1, bias=False),
+    nn.LeakyReLU(0.2, inplace=True),
+
+    nn.Conv2d(1, 128, 4, 2, 1, bias=False),
+    nn.BatchNorm2d(128),
     nn.LeakyReLU(0.2, inplace=True),
 
     nn.Conv2d(1, 256, 4, 2, 1, bias=False),
@@ -94,6 +125,25 @@ discriminator = nn.Sequential(
     nn.Sigmoid()
 )
 
+def discriminator_train(real_imgs, disc_optimizer):
+    # Training Real Images
+    predicted_real_imgs = discriminator(real_imgs)
+    target_real_imgs = torch.ones(real_imgs.size(0), 1)
+    real_imgs_loss = loss_function(predicted_real_imgs, target_real_imgs)
+
+    # Training Fake Images
+
+    predicted_fake_imgs = discriminator(real_imgs)
+    target_fake_imgs = torch.zeros(fake_imgs.size(0), 1)
+    fake_imgs_loss = loss_function(predicted_fake_imgs, target_fake_imgs)
+
+    disc_loss = real_imgs_loss + fake_imgs_loss
+    disc_loss.backward()
+    disc_optimizer.step()
+
+    return disc_loss.item()
+
+
 
 
 if __name__ == '__main__':
@@ -103,4 +153,7 @@ if __name__ == '__main__':
     plt.axis("off")
     plt.title("Training Images")
     plt.imshow(np.transpose(make_grid(real_batch[0], padding=2, normalize=True), (1, 2, 0)))
+    plt.show()
+    plt.title("Fake Images")
+    plt.imshow(np.transpose(make_grid(fake_imgs[0], padding=2, normalize=True), (1, 2, 0)))
     plt.show()
